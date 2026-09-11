@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>นักช้อปลดราคา - AR Math Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Kanit', sans-serif;
+            overflow: hidden;
+            background-color: #0f172a;
+            user-select: none;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        /* Mirror video element */
+        #webcam {
+            transform: scaleX(-1);
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen m-0 p-0 overflow-hidden bg-slate-950 text-white select-none">
+
+    <!-- Webcam Feed -->
+    <video id="webcam" class="absolute inset-0 w-full h-full object-cover z-0" autoplay playsinline muted></video>
+
+    <!-- AR Game Canvas -->
+    <canvas id="gameCanvas" class="absolute inset-0 w-full h-full z-10 block pointer-events-auto"></canvas>
+
+    <!-- Top HUD Banner -->
+    <div id="hudHeader" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-20 w-[92%] max-w-2xl">
+        <div class="glass-panel p-4 rounded-3xl shadow-2xl flex flex-col md:flex-row items-center justify-between gap-3 border border-white/20">
+            <!-- Question Badge -->
+            <div class="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
+                <span id="levelBadge" class="bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-extrabold px-3.5 py-1.5 rounded-full text-sm shadow-md">
+                    ข้อที่ 1/5
+                </span>
+                <div class="flex items-center gap-1.5 bg-slate-900/80 px-3.5 py-1 rounded-full border border-amber-400/30">
+                    <span class="text-amber-400 text-lg">⭐</span>
+                    <span class="text-xs text-slate-300">คะแนน:</span>
+                    <span id="scoreText" class="text-amber-300 font-extrabold text-lg">0</span>
+                </div>
+            </div>
+
+            <!-- Question Text -->
+            <div class="text-center md:text-right flex-1">
+                <div class="text-xs text-amber-300/80 font-semibold tracking-wider">โจทย์คณิตศาสตร์</div>
+                <div id="questionText" class="text-base sm:text-lg font-bold text-white drop-shadow">
+                    กำลังโหลดโจทย์...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hand Detection Alert Badge -->
+    <div id="handAlertBadge" class="hidden absolute top-24 left-1/2 -translate-x-1/2 z-20 bg-amber-500/90 text-slate-950 font-bold px-4 py-2 rounded-full shadow-lg backdrop-blur-md flex items-center gap-2 text-sm border border-amber-300/50 animate-pulse">
+        <span>👋</span>
+        <span id="handAlertText">กำลังหามือของคุณ... (หรือใช้เมาส์/ทัชสกรีนแทนได้)</span>
+    </div>
+
+    <!-- Start Screen Modal -->
+    <div id="startModal" class="absolute inset-0 z-30 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+        <div class="glass-panel max-w-lg w-full p-8 rounded-3xl text-center border border-white/20 shadow-2xl relative overflow-hidden">
+            <div class="absolute -top-10 -right-10 w-32 h-32 bg-amber-500/20 rounded-full blur-2xl"></div>
+            <div class="absolute -bottom-10 -left-10 w-32 h-32 bg-teal-500/20 rounded-full blur-2xl"></div>
+
+            <div class="text-5xl mb-3 animate-bounce">🛍️🎈</div>
+            <h1 class="text-3xl sm:text-4xl font-black bg-clip-text text-transparent bg-gradient-to-r from-amber-300 via-orange-300 to-amber-500 mb-2 drop-shadow">
+                นักช้อปลดราคา
+            </h1>
+            <p class="text-teal-300 font-medium text-sm sm:text-base mb-6">
+                เกม AR เรียนรู้คณิตศาสตร์เรื่องร้อยละ & การหาคำตอบ
+            </p>
+
+            <div class="bg-slate-900/80 p-4 rounded-2xl text-left text-xs sm:text-sm text-slate-300 mb-6 border border-white/10 space-y-2">
+                <div class="font-bold text-amber-400 text-center text-base mb-1">🎮 วิธีการเล่น</div>
+                <div class="flex items-start gap-2">
+                    <span>📷</span>
+                    <span>เปิดกล้องและยกมือขึ้นหน้าระบบติดตามมือ AR</span>
+                </div>
+                <div class="flex items-start gap-2">
+                    <span>👌</span>
+                    <span>ขยับปลายนิ้วชี้เพื่อเล็ง และ <b>จีบนิ้ว (นิ้วโป้งแตะนิ้วชี้)</b> เพื่อเจาะลูกโป่งคำตอบ</span>
+                </div>
+                <div class="flex items-start gap-2">
+                    <span>🖱️</span>
+                    <span>สามารถใช้เมาส์คลิก หรือแตะหน้าจอเพื่อเล่นแทนการใช้กล้องได้</span>
+                </div>
+            </div>
+
+            <button id="btnStartGame" class="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-extrabold text-lg sm:text-xl rounded-2xl shadow-xl transition transform hover:scale-105 active:scale-95 border border-emerald-300/40">
+                🚀 เข้าสู่เกม (Start)
+            </button>
+        </div>
+    </div>
+
+    <!-- Instruction Overlay Screen -->
+    <div id="instructionModal" class="hidden absolute inset-0 z-30 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm pointer-events-none">
+        <div class="glass-panel max-w-md w-full p-6 rounded-3xl text-center border border-emerald-400/30 shadow-2xl pointer-events-auto">
+            <h2 class="text-2xl font-bold text-emerald-300 mb-3">เตรียมพร้อมเจาะลูกโป่ง!</h2>
+            <p class="text-slate-200 text-sm mb-6">
+                ใช้มือของคุณจีบนิ้ว หรือคลิกปุ่มสีเขียวด้านล่างเพื่อเริ่มทำโจทย์
+            </p>
+            <button id="btnConfirmStart" class="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xl rounded-2xl shadow-lg border border-emerald-300 transition transform hover:scale-105 active:scale-95">
+                ✨ เริ่มเกม!
+            </button>
+        </div>
+    </div>
+
+    <!-- Explanation / Solution Modal -->
+    <div id="explanationModal" class="hidden absolute inset-0 z-30 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+        <div class="glass-panel max-w-md w-full p-6 rounded-3xl text-center border border-white/20 shadow-2xl relative overflow-hidden">
+            <div id="expResultBadge" class="inline-block px-4 py-1.5 rounded-full text-xs font-bold mb-3 tracking-wide"></div>
+            <h3 id="expTitle" class="text-2xl font-extrabold text-white mb-2">เฉลยคำตอบ</h3>
+
+            <div class="bg-slate-900/90 rounded-2xl p-4 mb-4 border border-white/10 text-left space-y-2">
+                <div class="text-xs text-slate-400">คำตอบที่ถูกต้องคือ: <span id="expCorrectAnswer" class="font-bold text-amber-300 text-sm sm:text-base"></span></div>
+                <div class="text-xs text-emerald-400 font-semibold mt-2">💡 วิธีคิดคำนวณ:</div>
+                <div id="expFormula" class="text-xs sm:text-sm text-slate-200 font-mono bg-slate-950/80 p-3 rounded-xl border border-slate-700/60 leading-relaxed"></div>
+            </div>
+
+            <!-- Auto Countdown Timer Progress Bar -->
+            <div class="w-full bg-slate-900/80 rounded-full h-2 mb-4 overflow-hidden border border-white/10">
+                <div id="expProgressBar" class="bg-gradient-to-r from-amber-400 to-emerald-400 h-full w-full transition-all duration-1000 ease-linear"></div>
+            </div>
+
+            <button id="btnNextQuestion" class="w-full py-3.5 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white font-bold text-base rounded-2xl shadow-lg border border-teal-300/40 transition hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2">
+                <span>ข้อต่อไป</span>
+                <span id="btnNextCountdown" class="bg-black/30 px-2 py-0.5 rounded-full text-xs font-mono text-amber-300">(6s)</span>
+                <span>➡️</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Game Over Modal -->
+    <div id="gameOverModal" class="hidden absolute inset-0 z-30 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-lg">
+        <div class="glass-panel max-w-md w-full p-8 rounded-3xl text-center border border-amber-400/40 shadow-2xl relative">
+            <div class="text-6xl mb-3">🎉🏆</div>
+            <h2 class="text-3xl font-black text-amber-300 mb-1">ครบ 5 ข้อ แล้ว!</h2>
+            <p class="text-slate-300 text-sm mb-6">สรุปผลคะแนนการเรียนรู้เรื่องร้อยละ</p>
+
+            <div class="bg-slate-900/90 p-5 rounded-2xl border border-white/10 mb-6">
+                <div class="text-slate-400 text-xs mb-1">คะแนนที่คุณทำได้</div>
+                <div class="text-5xl font-black text-amber-400 my-1"><span id="finalScore">0</span> / 5</div>
+                <div id="feedbackText" class="text-sm font-semibold text-emerald-300 mt-2">ยอดเยี่ยมมาก!</div>
+            </div>
+
+            <button id="btnRestartGame" class="w-full py-4 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-lg rounded-2xl shadow-lg transition border border-amber-300/50 hover:scale-105 active:scale-95">
+                🔄 เล่นใหม่อีกครั้ง
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Game Constants & Questions Data
+        const levelData = [
+            {
+                id: 1,
+                item: "ดินสอสี",
+                emoji: "✏️",
+                question: "ดินสอสีราคา 100 บาท ลด 10% ลดกี่บาท?",
+                options: ["10 บาท", "20 บาท", "90 บาท"],
+                answer: "10 บาท",
+                explanation: "ราคา 100 บาท × (10 ÷ 100) = 10 บาท"
+            },
+            {
+                id: 2,
+                item: "กระเป๋า",
+                emoji: "👜",
+                question: "กระเป๋าราคา 200 บาท ลด 10% ลดกี่บาท?",
+                options: ["10 บาท", "20 บาท", "40 บาท"],
+                answer: "20 บาท",
+                explanation: "ราคา 200 บาท × (10 ÷ 100) = 20 บาท"
+            },
+            {
+                id: 3,
+                item: "เสื้อ",
+                emoji: "👕",
+                question: "เสื้อราคา 300 บาท ลด 20% ลดกี่บาท?",
+                options: ["30 บาท", "60 บาท", "80 บาท"],
+                answer: "60 บาท",
+                explanation: "ราคา 300 บาท × (20 ÷ 100) = 60 บาท"
+            },
+            {
+                id: 4,
+                item: "รองเท้าแตะ",
+                emoji: "🩴",
+                question: "รองเท้าแตะราคา 200 บาท ลด 25% ลดกี่บาท?",
+                options: ["25 บาท", "50 บาท", "75 บาท"],
+                answer: "50 บาท",
+                explanation: "ราคา 200 บาท × (25 ÷ 100) = 50 บาท"
+            },
+            {
+                id: 5,
+                item: "ตุ๊กตา",
+                emoji: "🧸",
+                question: "ตุ๊กตาราคา 400 บาท ลด 10% ลดกี่บาท?",
+                options: ["20 บาท", "40 บาท", "80 บาท"],
+                answer: "40 บาท",
+                explanation: "ราคา 400 บาท × (10 ÷ 100) = 40 บาท"
+            }
+        ];
+
+        // State Machine Enum
+        const GameState = {
+            START: 'START',
+            INSTRUCTION: 'INSTRUCTION',
+            PLAYING: 'PLAYING',
+            EXPLANATION: 'EXPLANATION',
+            GAMEOVER: 'GAMEOVER'
+        };
+
+        let currentGameState = GameState.START;
+        let currentQuestionIndex = 0;
+        let currentScore = 0;
+        let balloons = [];
+        let particles = [];
+        let isHandDetected = false;
+        let explanationCountdownInterval = null;
+        let explanationSeconds = 6;
+
+        // Sound Synthesizer via Web Audio API
+        let audioCtx = null;
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playSound(type) {
+            if (!audioCtx) return;
+            try {
+                const now = audioCtx.currentTime;
+                if (type === 'pop') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(400, now);
+                    osc.frequency.exponentialRampToValueAtTime(80, now + 0.12);
+                    gain.gain.setValueAtTime(0.3, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.12);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.12);
+                } else if (type === 'correct') {
+                    [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+                        gain.gain.setValueAtTime(0.2, now + idx * 0.08);
+                        gain.gain.linearRampToValueAtTime(0.01, now + idx * 0.08 + 0.25);
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.start(now + idx * 0.08);
+                        osc.stop(now + idx * 0.08 + 0.25);
+                    });
+                } else if (type === 'wrong') {
+                    [220, 180].forEach((freq, idx) => {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.type = 'sawtooth';
+                        osc.frequency.setValueAtTime(freq, now + idx * 0.15);
+                        gain.gain.setValueAtTime(0.2, now + idx * 0.15);
+                        gain.gain.linearRampToValueAtTime(0.01, now + idx * 0.15 + 0.2);
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.start(now + idx * 0.15);
+                        osc.stop(now + idx * 0.15 + 0.2);
+                    });
+                } else if (type === 'click') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(600, now);
+                    osc.frequency.linearRampToValueAtTime(300, now + 0.05);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.05);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.05);
+                }
+            } catch (e) {
+                console.warn('Audio playback error', e);
+            }
+        }
+
+        // Canvas & DOM Setup
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('gameCanvas');
+        const ctx = canvasElement.getContext('2d');
+
+        const hudHeader = document.getElementById('hudHeader');
+        const levelBadge = document.getElementById('levelBadge');
+        const scoreText = document.getElementById('scoreText');
+        const questionText = document.getElementById('questionText');
+        const handAlertBadge = document.getElementById('handAlertBadge');
+
+        const startModal = document.getElementById('startModal');
+        const instructionModal = document.getElementById('instructionModal');
+        const explanationModal = document.getElementById('explanationModal');
+        const gameOverModal = document.getElementById('gameOverModal');
+
+        const btnStartGame = document.getElementById('btnStartGame');
+        const btnConfirmStart = document.getElementById('btnConfirmStart');
+        const btnNextQuestion = document.getElementById('btnNextQuestion');
+        const btnRestartGame = document.getElementById('btnRestartGame');
+
+        const expResultBadge = document.getElementById('expResultBadge');
+        const expCorrectAnswer = document.getElementById('expCorrectAnswer');
+        const expFormula = document.getElementById('expFormula');
+        const finalScore = document.getElementById('finalScore');
+        const feedbackText = document.getElementById('feedbackText');
+
+        // Cursor state object
+        const cursor = {
+            x: -100,
+            y: -100,
+            isPinching: false,
+            wasPinching: false,
+            state: 'normal', // normal, hover, miss, success
+            successTimer: 0,
+            missTimer: 0,
+            landmarks: null
+        };
+
+        function resizeCanvas() {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Colors palette for 2.5D balloons
+        const balloonColors = [
+            { main: '#f43f5e', dark: '#be123c', light: '#fda4af' }, // Rose
+            { main: '#3b82f6', dark: '#1d4ed8', light: '#93c5fd' }, // Blue
+            { main: '#10b981', dark: '#047857', light: '#6ee7b7' }, // Emerald
+            { main: '#8b5cf6', dark: '#6d28d9', light: '#c4b5fd' }, // Purple
+            { main: '#f59e0b', dark: '#b45309', light: '#fde68a' }  // Amber
+        ];
+
+        class Balloon {
+            constructor(x, y, radius, optionText, isCorrect, emoji, colorScheme) {
+                this.x = x;
+                this.y = y;
+                this.baseX = x;
+                this.baseY = y;
+                this.radius = radius;
+                this.optionText = optionText;
+                this.isCorrect = isCorrect;
+                this.emoji = emoji;
+                this.colorScheme = colorScheme;
+                this.hovered = false;
+                this.floatOffset = Math.random() * Math.PI * 2;
+            }
+
+            update(time) {
+                // Floating motion
+                this.y = this.baseY + Math.sin(time * 0.002 + this.floatOffset) * 12;
+                this.x = this.baseX + Math.cos(time * 0.0015 + this.floatOffset) * 8;
+            }
+
+            draw(context) {
+                context.save();
+                context.translate(this.x, this.y);
+
+                if (this.hovered) {
+                    context.scale(1.08, 1.08);
+                }
+
+                // Balloon String
+                context.beginPath();
+                context.moveTo(0, this.radius * 0.95);
+                context.quadraticCurveTo(8, this.radius + 25, 0, this.radius + 50);
+                context.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+                context.lineWidth = 2.5;
+                context.stroke();
+
+                // 2.5D Balloon Body Radial Gradient
+                const grad = context.createRadialGradient(
+                    -this.radius * 0.3, -this.radius * 0.3, this.radius * 0.1,
+                    0, 0, this.radius
+                );
+                grad.addColorStop(0, this.colorScheme.light);
+                grad.addColorStop(0.7, this.colorScheme.main);
+                grad.addColorStop(1, this.colorScheme.dark);
+
+                // Outer Shadow & Glow
+                context.shadowColor = this.hovered ? 'rgba(251, 191, 36, 0.8)' : 'rgba(0, 0, 0, 0.35)';
+                context.shadowBlur = this.hovered ? 25 : 12;
+
+                // Balloon Shape
+                context.beginPath();
+                context.ellipse(0, 0, this.radius * 0.9, this.radius, 0, 0, Math.PI * 2);
+                context.fillStyle = grad;
+                context.fill();
+
+                // Balloon Knot
+                context.beginPath();
+                context.moveTo(-8, this.radius * 0.92);
+                context.lineTo(8, this.radius * 0.92);
+                context.lineTo(12, this.radius * 1.05);
+                context.lineTo(-12, this.radius * 1.05);
+                context.closePath();
+                context.fillStyle = this.colorScheme.dark;
+                context.fill();
+
+                // Highlight shine (2.5D Specular Reflection)
+                context.shadowBlur = 0;
+                context.beginPath();
+                context.ellipse(-this.radius * 0.4, -this.radius * 0.4, this.radius * 0.22, this.radius * 0.12, -Math.PI / 4, 0, Math.PI * 2);
+                context.fillStyle = 'rgba(255, 255, 255, 0.55)';
+                context.fill();
+
+                // Emoji Icon
+                context.font = `${Math.round(this.radius * 0.45)}px sans-serif`;
+                context.textAlign = 'center';
+                context.textBaseline = 'middle';
+                context.fillText(this.emoji, 0, -this.radius * 0.2);
+
+                // Option Text Badge (Glassmorphism Pill)
+                context.fillStyle = 'rgba(15, 23, 42, 0.85)';
+                const textWidth = context.measureText(this.optionText).width + 24;
+                const badgeWidth = Math.max(textWidth, this.radius * 1.3);
+                const badgeHeight = 36;
+                const badgeY = this.radius * 0.25;
+
+                context.beginPath();
+                context.roundRect(-badgeWidth / 2, badgeY - badgeHeight / 2, badgeWidth, badgeHeight, 18);
+                context.fillStyle = 'rgba(15, 23, 42, 0.88)';
+                context.fill();
+                context.strokeStyle = this.hovered ? '#f59e0b' : 'rgba(255, 255, 255, 0.4)';
+                context.lineWidth = this.hovered ? 3 : 1.5;
+                context.stroke();
+
+                // Option Text
+                context.font = 'bold 16px Kanit, sans-serif';
+                context.fillStyle = this.hovered ? '#fde68a' : '#ffffff';
+                context.fillText(this.optionText, 0, badgeY + 1);
+
+                context.restore();
+            }
+
+            containsPoint(px, py) {
+                const dx = px - this.x;
+                const dy = py - this.y;
+                return (dx * dx) / (this.radius * 0.9 * this.radius * 0.9) + (dy * dy) / (this.radius * this.radius) <= 1.0;
+            }
+        }
+
+        // Particle Pop FX
+        class PopParticle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 2 + Math.random() * 8;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.radius = 3 + Math.random() * 5;
+                this.alpha = 1;
+                this.gravity = 0.15;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += this.gravity;
+                this.alpha -= 0.025;
+            }
+
+            draw(context) {
+                context.save();
+                context.globalAlpha = Math.max(0, this.alpha);
+                context.beginPath();
+                context.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                context.fillStyle = this.color;
+                context.fill();
+                context.restore();
+            }
+        }
+
+        function createPopParticles(x, y, color) {
+            for (let i = 0; i < 25; i++) {
+                particles.push(new PopParticle(x, y, color));
+            }
+        }
+
+        function loadQuestion(index) {
+            if (index >= levelData.length) {
+                endGame();
+                return;
+            }
+
+            const q = levelData[index];
+            levelBadge.textContent = `ข้อที่ ${index + 1}/5`;
+            questionText.textContent = `${q.emoji} ${q.question}`;
+
+            // Create 3 balloons spaced apart without overlapping
+            balloons = [];
+            const canvasW = canvasElement.width;
+            const canvasH = canvasElement.height;
+            const radius = Math.min(canvasW, canvasH) * 0.11;
+            const clampedRadius = Math.max(65, Math.min(100, radius));
+
+            // Distribute across screen horizontally
+            const padding = clampedRadius * 1.5;
+            const availableW = canvasW - padding * 2;
+            const stepX = availableW / 3;
+
+            q.options.forEach((opt, idx) => {
+                const posX = padding + stepX * idx + stepX / 2;
+                const posY = canvasH * 0.52 + (idx % 2 === 0 ? -25 : 25);
+                const isCorrect = opt === q.answer;
+                const colorScheme = balloonColors[idx % balloonColors.length];
+
+                balloons.push(new Balloon(posX, posY, clampedRadius, opt, isCorrect, q.emoji, colorScheme));
+            });
+        }
+
+        function showExplanation(isCorrect) {
+            currentGameState = GameState.EXPLANATION;
+            const q = levelData[currentQuestionIndex];
+
+            if (isCorrect) {
+                currentScore++;
+                scoreText.textContent = currentScore;
+                playSound('correct');
+                expResultBadge.className = "inline-block px-4 py-1.5 rounded-full text-xs font-bold mb-3 tracking-wide bg-emerald-500/20 text-emerald-300 border border-emerald-500/40";
+                expResultBadge.textContent = "✨ ถูกต้อง! +1 คะแนน";
+            } else {
+                playSound('wrong');
+                expResultBadge.className = "inline-block px-4 py-1.5 rounded-full text-xs font-bold mb-3 tracking-wide bg-rose-500/20 text-rose-300 border border-rose-500/40";
+                expResultBadge.textContent = "❌ ตอบไม่ถูกต้อง!";
+            }
+
+            expCorrectAnswer.textContent = q.answer;
+            expFormula.textContent = q.explanation;
+
+            // Clear previous countdown timer if any
+            if (explanationCountdownInterval) {
+                clearInterval(explanationCountdownInterval);
+            }
+
+            // Reset 6-second timer & progress visual bar
+            explanationSeconds = 6;
+            const btnNextCountdown = document.getElementById('btnNextCountdown');
+            const expProgressBar = document.getElementById('expProgressBar');
+
+            if (btnNextCountdown) btnNextCountdown.textContent = `(${explanationSeconds}s)`;
+            if (expProgressBar) {
+                expProgressBar.style.transition = 'none';
+                expProgressBar.style.width = '100%';
+                void expProgressBar.offsetWidth; // Force layout reflow
+                expProgressBar.style.transition = 'width 1s linear';
+            }
+
+            explanationCountdownInterval = setInterval(() => {
+                explanationSeconds--;
+                if (btnNextCountdown) btnNextCountdown.textContent = `(${explanationSeconds}s)`;
+                if (expProgressBar) {
+                    expProgressBar.style.width = `${(explanationSeconds / 6) * 100}%`;
+                }
+
+                if (explanationSeconds <= 0) {
+                    goToNextQuestion();
+                }
+            }, 1000);
+
+            setTimeout(() => {
+                explanationModal.classList.remove('hidden');
+            }, 300);
+        }
+
+        function goToNextQuestion() {
+            if (explanationCountdownInterval) {
+                clearInterval(explanationCountdownInterval);
+                explanationCountdownInterval = null;
+            }
+            explanationModal.classList.add('hidden');
+            currentQuestionIndex++;
+            if (currentQuestionIndex < levelData.length) {
+                loadQuestion(currentQuestionIndex);
+                currentGameState = GameState.PLAYING;
+            } else {
+                endGame();
+            }
+        }
+
+        function endGame() {
+            if (explanationCountdownInterval) {
+                clearInterval(explanationCountdownInterval);
+                explanationCountdownInterval = null;
+            }
+            currentGameState = GameState.GAMEOVER;
+            hudHeader.classList.add('hidden');
+            explanationModal.classList.add('hidden');
+            gameOverModal.classList.remove('hidden');
+
+            finalScore.textContent = currentScore;
+            if (currentScore === 5) {
+                feedbackText.textContent = "🌟 สุดยอดมาก! คุณคำนวณร้อยละได้อย่างถูกต้องทั้งหมด!";
+            } else if (currentScore >= 3) {
+                feedbackText.textContent = "👍 เก่งมาก! คุณมีความเข้าใจเรื่องร้อยละเป็นอย่างดี";
+            } else {
+                feedbackText.textContent = "💪 พยายามอีกนิดนะ! ลองทบทวนวิธีคำนวณแล้วทดลองใหม่";
+            }
+        }
+
+        // Button Event Handlers
+        btnStartGame.addEventListener('click', () => {
+            initAudio();
+            playSound('click');
+            startModal.classList.add('hidden');
+            instructionModal.classList.remove('hidden');
+            currentGameState = GameState.INSTRUCTION;
+        });
+
+        btnConfirmStart.addEventListener('click', () => {
+            initAudio();
+            playSound('click');
+            instructionModal.classList.add('hidden');
+            hudHeader.classList.remove('hidden');
+            currentScore = 0;
+            currentQuestionIndex = 0;
+            scoreText.textContent = "0";
+            loadQuestion(0);
+            currentGameState = GameState.PLAYING;
+        });
+
+        btnNextQuestion.addEventListener('click', () => {
+            initAudio();
+            playSound('click');
+            goToNextQuestion();
+        });
+
+        btnRestartGame.addEventListener('click', () => {
+            initAudio();
+            playSound('click');
+            if (explanationCountdownInterval) {
+                clearInterval(explanationCountdownInterval);
+                explanationCountdownInterval = null;
+            }
+            gameOverModal.classList.add('hidden');
+            hudHeader.classList.remove('hidden');
+            currentScore = 0;
+            currentQuestionIndex = 0;
+            scoreText.textContent = "0";
+            loadQuestion(0);
+            currentGameState = GameState.PLAYING;
+        });
+
+        // Mouse & Touch Fallback Input
+        function handlePointerMove(e) {
+            const rect = canvasElement.getBoundingClientRect();
+            cursor.x = e.clientX - rect.left;
+            cursor.y = e.clientY - rect.top;
+        }
+
+        function handlePointerDown(e) {
+            initAudio();
+            handlePointerMove(e);
+            cursor.isPinching = true;
+            triggerPinchInteraction();
+        }
+
+        function handlePointerUp() {
+            cursor.isPinching = false;
+        }
+
+        window.addEventListener('mousemove', handlePointerMove);
+        window.addEventListener('mousedown', handlePointerDown);
+        window.addEventListener('mouseup', handlePointerUp);
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) handlePointerMove(e.touches[0]);
+        }, { passive: true });
+        window.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) handlePointerDown(e.touches[0]);
+        }, { passive: true });
+        window.addEventListener('touchend', handlePointerUp);
+
+        function triggerPinchInteraction() {
+            if (currentGameState === GameState.PLAYING) {
+                let hitBalloon = false;
+                balloons.forEach((balloon) => {
+                    if (balloon.containsPoint(cursor.x, cursor.y)) {
+                        hitBalloon = true;
+                        playSound('pop');
+                        createPopParticles(balloon.x, balloon.y, balloon.colorScheme.main);
+                        cursor.state = 'success';
+                        cursor.successTimer = 25;
+                        showExplanation(balloon.isCorrect);
+                    }
+                });
+
+                if (!hitBalloon) {
+                    cursor.state = 'miss';
+                    cursor.missTimer = 15;
+                }
+            } else if (currentGameState === GameState.INSTRUCTION) {
+                btnConfirmStart.click();
+            }
+        }
+
+        function onHandResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                isHandDetected = true;
+                handAlertBadge.classList.add('hidden');
+
+                const landmarks = results.multiHandLandmarks[0];
+                cursor.landmarks = landmarks;
+
+                // Index Tip (8) and Thumb Tip (4)
+                const indexTip = landmarks[8];
+                const thumbTip = landmarks[4];
+
+                // Note: Video is mirrored with scaleX(-1), so x coordinate is inverted (1 - x)
+                const screenX = (1 - indexTip.x) * canvasElement.width;
+                const screenY = indexTip.y * canvasElement.height;
+
+                cursor.x = screenX;
+                cursor.y = screenY;
+
+                // Calculate Euclidean distance between Thumb Tip and Index Tip using Pythagorean theorem Math.sqrt(dx*dx + dy*dy)
+                const thumbX = (1 - thumbTip.x) * canvasElement.width;
+                const thumbY = thumbTip.y * canvasElement.height;
+
+                const dx = thumbX - screenX;
+                const dy = thumbY - screenY;
+                const pinchDistance = Math.sqrt(dx * dx + dy * dy);
+
+                // Pinch detection threshold (approx 45px)
+                const isPinchingNow = pinchDistance < 45;
+                cursor.isPinching = isPinchingNow;
+
+                // Trigger pinch gesture event on transition (False -> True)
+                if (isPinchingNow && !cursor.wasPinching) {
+                    triggerPinchInteraction();
+                }
+
+                cursor.wasPinching = isPinchingNow;
+            } else {
+                isHandDetected = false;
+                cursor.landmarks = null;
+                if (currentGameState === GameState.PLAYING || currentGameState === GameState.INSTRUCTION) {
+                    handAlertBadge.classList.remove('hidden');
+                }
+            }
+        }
+
+        // Initialize MediaPipe Hands
+        let hands = null;
+        try {
+            hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            hands.onResults(onHandResults);
+
+            const camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    if (hands) {
+                        await hands.send({ image: videoElement });
+                    }
+                },
+                width: 1280,
+                height: 720
+            });
+
+            camera.start().catch((err) => {
+                console.warn("Camera start failed, operating in Mouse Fallback mode.", err);
+                handAlertBadge.classList.remove('hidden');
+                document.getElementById('handAlertText').textContent = "เปิดกล้องไม่สำเร็จ (เปิดใช้งานโหมดเมาส์/ทัชสกรีน)";
+            });
+        } catch (err) {
+            console.warn("MediaPipe Hands initialization error:", err);
+            handAlertBadge.classList.remove('hidden');
+            document.getElementById('handAlertText').textContent = "โหมดเมาส์ / ทัชสกรีน (ไม่พบกล้อง/AI)";
+        }
+
+        function drawHandSkeleton(landmarks) {
+            if (!landmarks) return;
+
+            const connections = [
+                [0, 1], [1, 2], [2, 3], [3, 4],       // Thumb
+                [0, 5], [5, 6], [6, 7], [7, 8],       // Index
+                [5, 9], [9, 10], [10, 11], [11, 12],  // Middle
+                [9, 13], [13, 14], [14, 15], [15, 16], // Ring
+                [13, 17], [17, 18], [18, 19], [19, 20], // Pinky
+                [0, 17]
+            ];
+
+            const cw = canvasElement.width;
+            const ch = canvasElement.height;
+
+            // Draw Lines
+            ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+            ctx.lineWidth = 3;
+            connections.forEach(([i, j]) => {
+                const p1 = landmarks[i];
+                const p2 = landmarks[j];
+                ctx.beginPath();
+                ctx.moveTo((1 - p1.x) * cw, p1.y * ch);
+                ctx.lineTo((1 - p2.x) * cw, p2.y * ch);
+                ctx.stroke();
+            });
+
+            // Draw Joint Nodes
+            landmarks.forEach((p, idx) => {
+                ctx.beginPath();
+                ctx.arc((1 - p.x) * cw, p.y * ch, idx === 8 || idx === 4 ? 6 : 4, 0, Math.PI * 2);
+                ctx.fillStyle = (idx === 8 || idx === 4) ? '#f59e0b' : 'rgba(255, 255, 255, 0.8)';
+                ctx.fill();
+            });
+        }
+
+        function drawCursorFeedback(x, y) {
+            ctx.save();
+            ctx.translate(x, y);
+
+            if (cursor.successTimer > 0) {
+                cursor.successTimer--;
+                // Success State: Green Circle with ✔️ Symbol
+                ctx.beginPath();
+                ctx.arc(0, 0, 28, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(16, 185, 129, 0.35)';
+                ctx.fill();
+                ctx.strokeStyle = '#10b981';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                ctx.font = 'bold 22px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText('✔️', 0, 0);
+
+            } else if (cursor.missTimer > 0) {
+                cursor.missTimer--;
+                // Missed Pinch State: Red Circle
+                ctx.beginPath();
+                ctx.arc(0, 0, 22, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(244, 63, 94, 0.3)';
+                ctx.fill();
+                ctx.strokeStyle = '#f43f5e';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+            } else {
+                let isHovering = false;
+                if (currentGameState === GameState.PLAYING) {
+                    isHovering = balloons.some(b => b.containsPoint(x, y));
+                }
+
+                if (isHovering) {
+                    // Hover State: Yellow Dashed Circle
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 24, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#f59e0b';
+                    ctx.lineWidth = 3;
+                    ctx.setLineDash([6, 6]);
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 5, 0, Math.PI * 2);
+                    ctx.fillStyle = '#f59e0b';
+                    ctx.fill();
+                } else {
+                    // Normal State: Cyan Target Circle
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 18, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#38bdf8';
+                    ctx.lineWidth = 2.5;
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+                    ctx.fillStyle = '#38bdf8';
+                    ctx.fill();
+                }
+            }
+
+            ctx.restore();
+        }
+
+        function renderLoop(timestamp) {
+            // Clear Canvas frame
+            ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            // 1. Draw Hand Skeleton Tracking overlay if detected
+            if (isHandDetected && cursor.landmarks) {
+                drawHandSkeleton(cursor.landmarks);
+            }
+
+            // 2. Render Game Elements according to State
+            if (currentGameState === GameState.PLAYING) {
+                // Update and draw floating balloons
+                balloons.forEach((balloon) => {
+                    balloon.update(timestamp);
+                    balloon.hovered = balloon.containsPoint(cursor.x, cursor.y);
+                    balloon.draw(ctx);
+                });
+
+                // Update and draw pop particles
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    particles[i].update();
+                    particles[i].draw(ctx);
+                    if (particles[i].alpha <= 0) {
+                        particles.splice(i, 1);
+                    }
+                }
+            }
+
+            // 3. Draw AR Cursor Feedback on top
+            if (cursor.x > 0 && cursor.y > 0) {
+                drawCursorFeedback(cursor.x, cursor.y);
+            }
+
+            requestAnimationFrame(renderLoop);
+        }
+
+        window.onload = function () {
+            requestAnimationFrame(renderLoop);
+        };
+    </script>
+</body>
+</html>
