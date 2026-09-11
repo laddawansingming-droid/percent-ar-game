@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>เกม AR คณิตเรื่องร้อยละ: จ่ายเท่าไรดี</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Kanit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- MediaPipe Hands & Camera Utils CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: 'Kanit', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* Glassmorphism Styles */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), inset 0 2px 4px rgba(255, 255, 255, 0.4);
+        }
+
+        .glass-button {
+            background: rgba(34, 197, 94, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4);
+            transition: all 0.2s ease-in-out;
+        }
+
+        .glass-button:hover {
+            transform: scale(1.05);
+            background: rgba(34, 197, 94, 1);
+            box-shadow: 0 6px 20px rgba(34, 197, 94, 0.6);
+        }
+
+        /* Video element flip for mirrored AR view */
+        #webcam {
+            transform: scaleX(-1);
+            object-fit: cover;
+        }
+
+        /* Float animation for 2.5D cards */
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-8px) rotate(1deg); }
+        }
+
+        .animate-float {
+            animation: float 3s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden flex items-center justify-center">
+
+    <!-- Webcam Stream (Background) -->
+    <video id="webcam" class="absolute inset-0 w-full h-full z-0 pointer-events-none" autoplay playsinline muted></video>
+
+    <!-- AR Game Canvas Overlay -->
+    <canvas id="gameCanvas" class="absolute inset-0 w-full h-full z-10 touch-none cursor-pointer"></canvas>
+
+    <!-- UI Container (HUD & Screens) -->
+    <div id="uiOverlay" class="absolute inset-0 z-20 pointer-events-none flex flex-col justify-between p-4 sm:p-6">
+        
+        <!-- Top HUD (Score & Progress) -->
+        <div id="hud" class="hidden flex justify-between items-center w-full max-w-4xl mx-auto">
+            <div class="glass-panel rounded-2xl px-5 py-3 flex items-center space-x-3 pointer-events-auto">
+                <span class="text-2xl">📝</span>
+                <div>
+                    <p class="text-xs text-slate-200">ข้อที่</p>
+                    <p id="questionProgress" class="text-xl font-bold text-amber-300">1 / 5</p>
+                </div>
+            </div>
+
+            <div class="glass-panel rounded-2xl px-6 py-3 flex items-center space-x-3 pointer-events-auto">
+                <span class="text-2xl">🏆</span>
+                <div>
+                    <p class="text-xs text-slate-200">คะแนนสะสม</p>
+                    <p id="scoreText" class="text-2xl font-black text-emerald-400">0</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hand Detection Status Alert -->
+        <div id="handStatusAlert" class="hidden absolute top-20 left-1/2 -translate-x-1/2 glass-panel border-amber-400/50 text-amber-200 px-4 py-2 rounded-full text-sm font-medium flex items-center space-x-2 animate-pulse pointer-events-auto">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+            <span>กำลังหามือของคุณ... (สามารถใช้เมาส์คลิกลากแทนได้)</span>
+        </div>
+
+        <!-- ANSWER FEEDBACK MODAL (Popup Alert) -->
+        <div id="feedbackModal" class="hidden pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/50 backdrop-blur-md transition-all duration-300">
+            <div id="feedbackCard" class="glass-panel p-6 sm:p-8 rounded-3xl text-center max-w-xs sm:max-w-sm w-full border-2 shadow-2xl flex flex-col items-center animate-bounce-short">
+                <div id="feedbackIcon" class="text-6xl mb-3">🎉</div>
+                <h3 id="feedbackTitle" class="text-3xl font-extrabold mb-1">ถูกต้องแล้ว!</h3>
+                <p id="feedbackText" class="text-slate-200 text-sm font-medium">ยินดีด้วย! คุณคิดคำนวณถูกต้อง</p>
+            </div>
+        </div>
+
+        <!-- START SCREEN MODAL -->
+        <div id="startScreen" class="pointer-events-auto my-auto mx-auto glass-panel p-8 sm:p-10 rounded-3xl text-center max-w-md w-full shadow-2xl flex flex-col items-center border border-white/30">
+            <div class="text-6xl mb-4 animate-bounce">🛒</div>
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 mb-2">
+                จ่ายเท่าไรดี
+            </h1>
+            <p class="text-slate-200 text-base mb-6 font-light">เกมเรียนรู้เรื่องร้อยละและส่วนลดสินค้าด้วยเทคโนโลยี AR Hand Tracking</p>
+            
+            <button id="btnStart" class="glass-button text-white text-xl font-bold px-8 py-3.5 rounded-2xl w-full cursor-pointer transition active:scale-95 flex items-center justify-center space-x-2">
+                <span>เข้าสู่เกม (Start)</span>
+                <span class="text-2xl">🚀</span>
+            </button>
+        </div>
+
+        <!-- INSTRUCTIONS MODAL -->
+        <div id="instructionScreen" class="hidden pointer-events-auto my-auto mx-auto glass-panel p-6 sm:p-8 rounded-3xl text-center max-w-lg w-full shadow-2xl flex flex-col items-center">
+            <h2 class="text-2xl font-bold text-amber-300 mb-4 flex items-center gap-2">
+                <span>📖</span> วิธีการเล่น
+            </h2>
+            
+            <div class="space-y-4 text-left text-slate-100 text-sm sm:text-base mb-6 w-full">
+                <div class="flex items-start gap-3 bg-white/10 p-3 rounded-xl border border-white/10">
+                    <span class="text-2xl">🖐️</span>
+                    <div>
+                        <strong class="text-emerald-300">ควบคุมด้วยกล้อง:</strong> ชูมือขึ้นมา ย้ายปลายนิ้วชี้เพื่อเลื่อนเคอร์เซอร์
+                    </div>
+                </div>
+                <div class="flex items-start gap-3 bg-white/10 p-3 rounded-xl border border-white/10">
+                    <span class="text-2xl">👌</span>
+                    <div>
+                        <strong class="text-emerald-300">จีบนิ้ว (Pinch):</strong> นำนิ้วโป้งแตะนิ้วชี้เพื่อ <span class="underline decoration-emerald-400 font-bold">ลากเส้น</span> หรือกดปุ่ม
+                    </div>
+                </div>
+                <div class="flex items-start gap-3 bg-white/10 p-3 rounded-xl border border-white/10">
+                    <span class="text-2xl">🖱️</span>
+                    <div>
+                        <strong class="text-amber-300">ระบบสำรอง:</strong> หาก AI ไม่เจอมือ สามารถใช้เมาส์หรือนิ้วสัมผัสหน้าจอลากเส้นได้ทันที
+                    </div>
+                </div>
+            </div>
+
+            <!-- Floating Green Start Button (Clickable with Hand or Mouse) -->
+            <div class="w-full relative h-16 flex items-center justify-center">
+                <button id="btnGameBegin" class="glass-button text-white text-xl font-bold px-10 py-3.5 rounded-2xl w-full cursor-pointer animate-pulse flex items-center justify-center space-x-2 border-2 border-emerald-300">
+                    <span>เริ่มเกม!</span>
+                    <span class="text-2xl">✨</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- GAME OVER SUMMARY MODAL -->
+        <div id="summaryScreen" class="hidden pointer-events-auto my-auto mx-auto glass-panel p-8 rounded-3xl text-center max-w-md w-full shadow-2xl flex flex-col items-center">
+            <div class="text-6xl mb-3">🎉</div>
+            <h2 class="text-3xl font-extrabold text-amber-300 mb-1">ครบ 5 ข้อ แล้ว!</h2>
+            <p class="text-slate-300 text-sm mb-6">สรุปผลการตอบคำถามเรื่องร้อยละ</p>
+
+            <div class="bg-white/10 rounded-2xl p-6 w-full border border-white/20 mb-6 flex flex-col items-center">
+                <span class="text-slate-300 text-sm mb-1">คะแนนรวมของคุณ</span>
+                <span id="finalScore" class="text-5xl font-black text-emerald-400">0 / 5</span>
+                <p id="feedbackMsg" class="text-emerald-200 text-sm mt-3 font-medium">ยอดเยี่ยมมาก! เข้าใจเรื่องการคิดส่วนลดได้ดี</p>
+            </div>
+
+            <button id="btnRestart" class="glass-button text-white text-lg font-bold px-8 py-3 rounded-xl w-full cursor-pointer flex items-center justify-center space-x-2">
+                <span>เล่นใหม่อีกครั้ง</span>
+                <span class="text-xl">🔄</span>
+            </button>
+        </div>
+
+        <!-- Footer watermark -->
+        <div class="text-center text-xs text-slate-400 font-light pointer-events-none mb-1">
+            เกม AR เพื่อการเรียนรู้คณิตศาสตร์ • สื่อการเรียนรู้เรื่องร้อยละ
+        </div>
+    </div>
+
+    <script>
+        // Canvas & Context
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const videoElement = document.getElementById('webcam');
+
+        // UI Screens & Controls
+        const startScreen = document.getElementById('startScreen');
+        const instructionScreen = document.getElementById('instructionScreen');
+        const summaryScreen = document.getElementById('summaryScreen');
+        const feedbackModal = document.getElementById('feedbackModal');
+        const feedbackCard = document.getElementById('feedbackCard');
+        const feedbackIcon = document.getElementById('feedbackIcon');
+        const feedbackTitle = document.getElementById('feedbackTitle');
+        const feedbackText = document.getElementById('feedbackText');
+        const hud = document.getElementById('hud');
+        const questionProgress = document.getElementById('questionProgress');
+        const scoreText = document.getElementById('scoreText');
+        const handStatusAlert = document.getElementById('handStatusAlert');
+        const btnStart = document.getElementById('btnStart');
+        const btnGameBegin = document.getElementById('btnGameBegin');
+        const btnRestart = document.getElementById('btnRestart');
+
+        // Game State Engine
+        let gameState = 'START'; // 'START', 'INSTRUCTIONS', 'PLAYING', 'SUMMARY'
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let isCameraActive = false;
+        let isHandDetected = false;
+        let isAnswering = false; // Flag to lock user interactions during notification feedback display
+
+        // Question Level Data (5 Questions)
+        const questionsData = [
+            {
+                id: 1,
+                title: "สมุดวาดเขียนราคา 100 บาท ลด 10%",
+                question: "ต้องจ่ายกี่บาท?",
+                itemEmoji: "📚",
+                options: [
+                    { label: "10 บาท", value: 10, isCorrect: false },
+                    { label: "90 บาท", value: 90, isCorrect: true },
+                    { label: "100 บาท", value: 100, isCorrect: false }
+                ]
+            },
+            {
+                id: 2,
+                title: "กระเป๋าผ้าราคา 200 บาท ลด 10%",
+                question: "ต้องจ่ายกี่บาท?",
+                itemEmoji: "👜",
+                options: [
+                    { label: "20 บาท", value: 20, isCorrect: false },
+                    { label: "180 บาท", value: 180, isCorrect: true },
+                    { label: "190 บาท", value: 190, isCorrect: false }
+                ]
+            },
+            {
+                id: 3,
+                title: "เสื้อยืดราคา 300 บาท ลด 20%",
+                question: "ต้องจ่ายกี่บาท?",
+                itemEmoji: "👕",
+                options: [
+                    { label: "60 บาท", value: 60, isCorrect: false },
+                    { label: "220 บาท", value: 220, isCorrect: false },
+                    { label: "240 บาท", value: 240, isCorrect: true }
+                ]
+            },
+            {
+                id: 4,
+                title: "รองเท้าแตะราคา 200 บาท ลด 25%",
+                question: "ต้องจ่ายกี่บาท?",
+                itemEmoji: "🩴",
+                options: [
+                    { label: "50 บาท", value: 50, isCorrect: false },
+                    { label: "150 บาท", value: 150, isCorrect: true },
+                    { label: "175 บาท", value: 175, isCorrect: false }
+                ]
+            },
+            {
+                id: 5,
+                title: "ตุ๊กตาราคา 400 บาท ลด 10%",
+                question: "ต้องจ่ายกี่บาท?",
+                itemEmoji: "🧸",
+                options: [
+                    { label: "40 บาท", value: 40, isCorrect: false },
+                    { label: "340 บาท", value: 340, isCorrect: false },
+                    { label: "360 บาท", value: 360, isCorrect: true }
+                ]
+            }
+        ];
+
+        // Interactive Objects Position State
+        let dragSourceNode = { x: 0, y: 0, radius: 35, isHovered: false };
+        let answerCards = [];
+        let questionBannerRect = { x: 0, y: 0, width: 0, height: 0 };
+
+        // Interaction Tracking State
+        let pointer = {
+            x: 0,
+            y: 0,
+            isPinching: false,
+            wasPinching: false,
+            source: 'MOUSE', // 'HAND' or 'MOUSE'
+            pinchDistance: 999
+        };
+
+        let activeDrag = {
+            isDragging: false,
+            startX: 0,
+            startY: 0,
+            currentX: 0,
+            currentY: 0
+        };
+
+        // Cursor Feedback States
+        // NORMAL (Blue), HOVER (Yellow dashed), PINCH_MISS (Red), PINCH_SUCCESS (Green + Checkmark)
+        let cursorStatus = 'NORMAL';
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+            if (type === 'pop') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.exponentialRampToValueAtTime(800, now + 0.08);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.linearRampToValueAtTime(0, now + 0.08);
+                osc.start(now);
+                osc.stop(now + 0.08);
+            } else if (type === 'correct') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, now); // C5
+                osc.frequency.setValueAtTime(659.25, now + 0.1); // E5
+                osc.frequency.setValueAtTime(783.99, now + 0.2); // G5
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.linearRampToValueAtTime(0, now + 0.4);
+                osc.start(now);
+                osc.stop(now + 0.4);
+            } else if (type === 'wrong') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(220, now);
+                osc.frequency.setValueAtTime(180, now + 0.15);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.linearRampToValueAtTime(0, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            }
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            if (gameState === 'PLAYING') {
+                setupQuestionLayout();
+            }
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onHandResults);
+
+        // MediaPipe results handler (Runs independently from requestAnimationFrame)
+        function onHandResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                isHandDetected = true;
+                handStatusAlert.classList.add('hidden');
+
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // Index Finger Tip (Landmark 8)
+                const indexTip = landmarks[8];
+                // Thumb Tip (Landmark 4)
+                const thumbTip = landmarks[4];
+
+                // Flipped camera adjustment (X coordinate mirrored: 1 - x)
+                const indexX = (1 - indexTip.x) * canvas.width;
+                const indexY = indexTip.y * canvas.height;
+
+                const thumbX = (1 - thumbTip.x) * canvas.width;
+                const thumbY = thumbTip.y * canvas.height;
+
+                // Pythagoras formula for pinch distance calculation (Mandatory Requirement)
+                const dx = thumbX - indexX;
+                const dy = thumbY - indexY;
+                const distancePixels = Math.sqrt(dx * dx + dy * dy);
+
+                // Pinch threshold in pixels
+                const pinchThreshold = 45;
+                const isPinching = distancePixels < pinchThreshold;
+
+                // Update global pointer with hand coordinates
+                pointer.x = indexX;
+                pointer.y = indexY;
+                pointer.isPinching = isPinching;
+                pointer.source = 'HAND';
+                pointer.pinchDistance = distancePixels;
+
+            } else {
+                isHandDetected = false;
+                if (gameState === 'PLAYING') {
+                    handStatusAlert.classList.remove('hidden');
+                }
+            }
+        }
+
+        async function startCamera() {
+            try {
+                const camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        await hands.send({ image: videoElement });
+                    },
+                    width: 1280,
+                    height: 720
+                });
+                await camera.start();
+                isCameraActive = true;
+            } catch (err) {
+                console.warn("Camera failed to load, falling back to mouse/touch mode.", err);
+                handStatusAlert.innerHTML = "⚠️ ไม่พบกล้องวิดีโอ - ระบบเปลี่ยนเป็นโหมดใช้เมาส์/สัมผัส";
+                handStatusAlert.classList.remove('hidden');
+            }
+        }
+
+        function setupQuestionLayout() {
+            const currentQ = questionsData[currentQuestionIndex];
+            questionProgress.innerText = `${currentQuestionIndex + 1} / ${questionsData.length}`;
+            scoreText.innerText = score;
+
+            const w = canvas.width;
+            const h = canvas.height;
+
+            // Question Banner Dimensions
+            questionBannerRect = {
+                x: w * 0.1,
+                y: h * 0.12,
+                width: w * 0.8,
+                height: 110
+            };
+
+            // Source Drag Node Position (Left side center)
+            dragSourceNode = {
+                x: w * 0.22,
+                y: h * 0.58,
+                radius: 42,
+                isHovered: false
+            };
+
+            // 3 Answer Cards 2.5D Layout (Right side vertical array with spacing)
+            const cardWidth = Math.min(260, w * 0.32);
+            const cardHeight = 90;
+            const cardX = w * 0.62;
+            const startY = h * 0.35;
+            const spacing = 115;
+
+            // Shuffle option positions slightly or keep structured non-overlapping
+            answerCards = currentQ.options.map((opt, idx) => {
+                return {
+                    id: idx,
+                    label: opt.label,
+                    value: opt.value,
+                    isCorrect: opt.isCorrect,
+                    x: cardX,
+                    y: startY + (idx * spacing),
+                    width: cardWidth,
+                    height: cardHeight,
+                    isHovered: false,
+                    scale: 1.0,
+                    offsetY: (idx % 2 === 0) ? 0 : 5 // Floating staggered variation
+                };
+            });
+        }
+
+        btnStart.addEventListener('click', () => {
+            playSound('pop');
+            startScreen.classList.add('hidden');
+            instructionScreen.classList.remove('hidden');
+            gameState = 'INSTRUCTIONS';
+            if (!isCameraActive) {
+                startCamera();
+            }
+        });
+
+        btnGameBegin.addEventListener('click', () => {
+            playSound('pop');
+            instructionScreen.classList.add('hidden');
+            hud.classList.remove('hidden');
+            gameState = 'PLAYING';
+            currentQuestionIndex = 0;
+            score = 0;
+            setupQuestionLayout();
+        });
+
+        btnRestart.addEventListener('click', () => {
+            playSound('pop');
+            summaryScreen.classList.add('hidden');
+            hud.classList.remove('hidden');
+            gameState = 'PLAYING';
+            currentQuestionIndex = 0;
+            score = 0;
+            setupQuestionLayout();
+        });
+
+        function updatePointerFromMouse(e) {
+            if (pointer.source === 'HAND' && isHandDetected) return; // Prioritize hand if active
+            const rect = canvas.getBoundingClientRect();
+            pointer.x = e.clientX - rect.left;
+            pointer.y = e.clientY - rect.top;
+        }
+
+        canvas.addEventListener('mousemove', (e) => {
+            pointer.source = 'MOUSE';
+            updatePointerFromMouse(e);
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            pointer.source = 'MOUSE';
+            updatePointerFromMouse(e);
+            pointer.isPinching = true;
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            if (pointer.source === 'MOUSE') {
+                pointer.isPinching = false;
+            }
+        });
+
+        // Touch Listeners
+        canvas.addEventListener('touchmove', (e) => {
+            pointer.source = 'MOUSE';
+            if (e.touches.length > 0) {
+                const rect = canvas.getBoundingClientRect();
+                pointer.x = e.touches[0].clientX - rect.left;
+                pointer.y = e.touches[0].clientY - rect.top;
+            }
+        }, { passive: true });
+
+        canvas.addEventListener('touchstart', (e) => {
+            pointer.source = 'MOUSE';
+            if (e.touches.length > 0) {
+                const rect = canvas.getBoundingClientRect();
+                pointer.x = e.touches[0].clientX - rect.left;
+                pointer.y = e.touches[0].clientY - rect.top;
+                pointer.isPinching = true;
+            }
+        }, { passive: true });
+
+        canvas.addEventListener('touchend', () => {
+            if (pointer.source === 'MOUSE') {
+                pointer.isPinching = false;
+            }
+        });
+
+        function drawLoop() {
+            // Clear Canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (gameState === 'PLAYING') {
+                updateGameLogic();
+                renderGameScene();
+            } else if (gameState === 'INSTRUCTIONS') {
+                // Check hand interaction over the floating green button in instruction screen
+                checkInstructionButtonInteraction();
+            }
+
+            // Always render cursor feedback overlay on top
+            renderCursorFeedback();
+
+            // Request next frame
+            requestAnimationFrame(drawLoop);
+        }
+
+        function checkInstructionButtonInteraction() {
+            const btnRect = btnGameBegin.getBoundingClientRect();
+            const isOverBtn = (
+                pointer.x >= btnRect.left &&
+                pointer.x <= btnRect.right &&
+                pointer.y >= btnRect.top &&
+                pointer.y <= btnRect.bottom
+            );
+
+            if (isOverBtn) {
+                cursorStatus = 'HOVER';
+                if (pointer.isPinching && !pointer.wasPinching) {
+                    btnGameBegin.click();
+                }
+            } else {
+                cursorStatus = pointer.isPinching ? 'PINCH_MISS' : 'NORMAL';
+            }
+            pointer.wasPinching = pointer.isPinching;
+        }
+
+        function updateGameLogic() {
+            // Prevent dragging/interacting while showing feedback popup
+            if (isAnswering) return;
+
+            const currentQ = questionsData[currentQuestionIndex];
+
+            // 1. Check hover over Drag Source Node
+            const distToSource = Math.sqrt(
+                Math.pow(pointer.x - dragSourceNode.x, 2) + 
+                Math.pow(pointer.y - dragSourceNode.y, 2)
+            );
+            dragSourceNode.isHovered = distToSource <= dragSourceNode.radius + 10;
+
+            // 2. Check hover over Answer Cards
+            let hoveredCard = null;
+            answerCards.forEach(card => {
+                const isInside = (
+                    pointer.x >= card.x && 
+                    pointer.x <= card.x + card.width &&
+                    pointer.y >= card.y && 
+                    pointer.y <= card.y + card.height
+                );
+                card.isHovered = isInside;
+                if (isInside) hoveredCard = card;
+            });
+
+            // 3. Pinch Start Trigger
+            const justPinched = pointer.isPinching && !pointer.wasPinching;
+            const justReleased = !pointer.isPinching && pointer.wasPinching;
+
+            if (justPinched) {
+                if (dragSourceNode.isHovered) {
+                    activeDrag.isDragging = true;
+                    activeDrag.startX = dragSourceNode.x;
+                    activeDrag.startY = dragSourceNode.y;
+                    playSound('pop');
+                }
+            }
+
+            // Update drag positions
+            if (activeDrag.isDragging) {
+                activeDrag.currentX = pointer.x;
+                activeDrag.currentY = pointer.y;
+
+                // Release Drag / Drop Line
+                if (justReleased) {
+                    activeDrag.isDragging = false;
+
+                    // Check if dropped onto a card
+                    if (hoveredCard) {
+                        evaluateAnswer(hoveredCard);
+                    }
+                }
+            }
+
+            // 4. Update Cursor Status Indicator
+            if (activeDrag.isDragging) {
+                if (hoveredCard) {
+                    cursorStatus = 'PINCH_SUCCESS';
+                } else {
+                    cursorStatus = 'PINCH_SUCCESS'; // Active successful drag
+                }
+            } else {
+                if (dragSourceNode.isHovered || hoveredCard) {
+                    cursorStatus = 'HOVER';
+                } else if (pointer.isPinching) {
+                    cursorStatus = 'PINCH_MISS';
+                } else {
+                    cursorStatus = 'NORMAL';
+                }
+            }
+
+            pointer.wasPinching = pointer.isPinching;
+        }
+
+        function evaluateAnswer(selectedCard) {
+            if (isAnswering) return;
+            isAnswering = true;
+
+            const currentQ = questionsData[currentQuestionIndex];
+            const correctOpt = currentQ.options.find(opt => opt.isCorrect);
+
+            if (selectedCard.isCorrect) {
+                playSound('correct');
+                score += 1;
+                scoreText.innerText = score;
+
+                // Feedback configuration for CORRECT answer
+                feedbackIcon.innerText = "🎉";
+                feedbackTitle.innerText = "ถูกต้องแล้ว!";
+                feedbackTitle.className = "text-3xl font-extrabold mb-1 text-emerald-400";
+                feedbackText.innerText = `ยินดีด้วย! คุณตอบถูก รับไป 1 คะแนน`;
+                feedbackCard.className = "glass-panel p-6 sm:p-8 rounded-3xl text-center max-w-xs sm:max-w-sm w-full border-2 border-emerald-400/80 shadow-2xl flex flex-col items-center bg-emerald-950/60 backdrop-blur-md";
+            } else {
+                playSound('wrong');
+
+                // Feedback configuration for INCORRECT answer
+                feedbackIcon.innerText = "❌";
+                feedbackTitle.innerText = "ยังไม่ถูกต้อง!";
+                feedbackTitle.className = "text-3xl font-extrabold mb-1 text-rose-400";
+                feedbackText.innerText = `คำตอบที่ถูกต้องคือ: ${correctOpt ? correctOpt.label : ''}`;
+                feedbackCard.className = "glass-panel p-6 sm:p-8 rounded-3xl text-center max-w-xs sm:max-w-sm w-full border-2 border-rose-400/80 shadow-2xl flex flex-col items-center bg-rose-950/60 backdrop-blur-md";
+            }
+
+            // Show feedback notification
+            feedbackModal.classList.remove('hidden');
+
+            // Pause for 1.5 seconds so player can read notification, then transition
+            setTimeout(() => {
+                feedbackModal.classList.add('hidden');
+                isAnswering = false;
+
+                if (currentQuestionIndex < questionsData.length - 1) {
+                    currentQuestionIndex++;
+                    setupQuestionLayout();
+                } else {
+                    // End Game
+                    gameState = 'SUMMARY';
+                    hud.classList.add('hidden');
+                    handStatusAlert.classList.add('hidden');
+                    
+                    document.getElementById('finalScore').innerText = `${score} / ${questionsData.length}`;
+                    const feedbackMsg = document.getElementById('feedbackMsg');
+                    if (score === 5) {
+                        feedbackMsg.innerText = "🌟 สุดยอดมาก! ได้คะแนนเต็ม 100% ตอบถูกทุกข้อ!";
+                    } else if (score >= 3) {
+                        feedbackMsg.innerText = "เก่งมาก! เข้าใจหลักการคำนวณร้อยละเป็นอย่างดี";
+                    } else {
+                        feedbackMsg.innerText = "พยายามได้ดี! ลองฝึกคิดส่วนลดบ่อยๆ นะครับ";
+                    }
+                    summaryScreen.classList.remove('hidden');
+                }
+            }, 1500);
+        }
+
+        function renderGameScene() {
+            const currentQ = questionsData[currentQuestionIndex];
+
+            // --- A. Question Banner (Top Glass Panel) ---
+            const b = questionBannerRect;
+            ctx.save();
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 2;
+            roundRect(ctx, b.x, b.y, b.width, b.height, 24, true, true);
+
+            // Question Emoji Icon
+            ctx.font = '45px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(currentQ.itemEmoji, b.x + 25, b.y + b.height / 2);
+
+            // Question Text
+            ctx.font = 'bold 22px Kanit';
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillText(currentQ.title, b.x + 85, b.y + 40);
+
+            ctx.font = '600 20px Kanit';
+            ctx.fillStyle = '#fbbf24'; // Amber accent
+            ctx.fillText(`โจทย์: ${currentQ.question}`, b.x + 85, b.y + 75);
+            ctx.restore();
+
+            // --- B. Drag Source Node (Left Center) ---
+            ctx.save();
+            const sn = dragSourceNode;
+            
+            // Glowing effect on hover
+            if (sn.isHovered) {
+                ctx.shadowColor = '#34d399';
+                ctx.shadowBlur = 20;
+            }
+
+            // Outer ring
+            ctx.beginPath();
+            ctx.arc(sn.x, sn.y, sn.radius + 8, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(52, 211, 153, 0.2)';
+            ctx.fill();
+
+            // Main node circle
+            ctx.beginPath();
+            ctx.arc(sn.x, sn.y, sn.radius, 0, Math.PI * 2);
+            ctx.fillStyle = sn.isHovered ? '#10b981' : '#059669';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.fill();
+            ctx.stroke();
+
+            // Center icon & instruction
+            ctx.font = '24px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('✏️', sn.x, sn.y - 2);
+
+            ctx.font = '13px Kanit';
+            ctx.fillStyle = '#f1f5f9';
+            ctx.fillText('จีบมือลากจากนี่', sn.x, sn.y + sn.radius + 20);
+            ctx.restore();
+
+            // --- C. Active Drag Line Drawing ---
+            if (activeDrag.isDragging) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(activeDrag.startX, activeDrag.startY);
+                ctx.lineTo(activeDrag.currentX, activeDrag.currentY);
+                ctx.strokeStyle = '#38bdf8'; // Glowing light blue
+                ctx.lineWidth = 6;
+                ctx.lineCap = 'round';
+                ctx.shadowColor = '#38bdf8';
+                ctx.shadowBlur = 15;
+                ctx.stroke();
+
+                // Pulse circle at tip of line
+                ctx.beginPath();
+                ctx.arc(activeDrag.currentX, activeDrag.currentY, 12, 0, Math.PI * 2);
+                ctx.fillStyle = '#38bdf8';
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // --- D. Render 2.5D Answer Cards ---
+            answerCards.forEach(card => {
+                ctx.save();
+                
+                // Floating subtle animation calculation
+                const floatOffset = Math.sin(Date.now() * 0.003 + card.id) * 4;
+                const renderY = card.y + floatOffset;
+
+                // Card Scale on hover
+                if (card.isHovered) {
+                    ctx.shadowColor = '#fbbf24';
+                    ctx.shadowBlur = 25;
+                } else {
+                    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+                    ctx.shadowBlur = 12;
+                }
+
+                // Card Base (Glassmorphism 2.5D look)
+                ctx.fillStyle = card.isHovered ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.18)';
+                ctx.strokeStyle = card.isHovered ? '#f59e0b' : 'rgba(255, 255, 255, 0.4)';
+                ctx.lineWidth = card.isHovered ? 3 : 2;
+                
+                roundRect(ctx, card.x, renderY, card.width, card.height, 18, true, true);
+
+                // Option Text
+                ctx.font = 'bold 24px Kanit';
+                ctx.fillStyle = card.isHovered ? '#ffffff' : '#f8fafc';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(card.label, card.x + card.width / 2, renderY + card.height / 2);
+
+                ctx.restore();
+            });
+        }
+
+        function renderCursorFeedback() {
+            if (pointer.x === 0 && pointer.y === 0) return;
+
+            const x = pointer.x;
+            const y = pointer.y;
+
+            ctx.save();
+
+            if (cursorStatus === 'NORMAL') {
+                // Normal Mode: Smooth Blue Circle
+                ctx.beginPath();
+                ctx.arc(x, y, 16, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(59, 130, 246, 0.3)';
+                ctx.fill();
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+
+            } else if (cursorStatus === 'HOVER') {
+                // Hover Target: Yellow Dashed Circle
+                ctx.beginPath();
+                ctx.arc(x, y, 22, 0, Math.PI * 2);
+                ctx.strokeStyle = '#eab308';
+                ctx.lineWidth = 35;
+                ctx.setLineDash([8, 6]);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(x, y, 6, 0, Math.PI * 2);
+                ctx.fillStyle = '#eab308';
+                ctx.fill();
+
+            } else if (cursorStatus === 'PINCH_MISS') {
+                // Pinch Missed Target: Red Circle
+                ctx.beginPath();
+                ctx.arc(x, y, 18, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(239, 68, 68, 0.3)';
+                ctx.fill();
+                ctx.strokeStyle = '#ef4444';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+            } else if (cursorStatus === 'PINCH_SUCCESS') {
+                // Pinch Successful / Connected: Green Circle with Checkmark ✔️
+                ctx.beginPath();
+                ctx.arc(x, y, 22, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(34, 197, 94, 0.85)';
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
+
+                ctx.font = 'bold 16px sans-serif';
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('✔️', x, y);
+            }
+
+            ctx.restore();
+        }
+
+        function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
+            if (typeof radius === 'number') {
+                radius = { tl: radius, tr: radius, br: radius, bl: radius };
+            } else {
+                var defaultRadius = { tl: 0, tr: 0, br: 0, bl: 0 };
+                for (var side in defaultRadius) {
+                    radius[side] = radius[side] || defaultRadius[side];
+                }
+            }
+            ctx.beginPath();
+            ctx.moveTo(x + radius.tl, y);
+            ctx.lineTo(x + width - radius.tr, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius.tr);
+            ctx.lineTo(x + width, y + height - radius.br);
+            ctx.quadraticCurveTo(x + width, y + height, x + width - radius.br, y + height);
+            ctx.lineTo(x + radius.bl, y + height);
+            ctx.quadraticCurveTo(x, y + height, x, y + height - radius.bl);
+            ctx.lineTo(x, y + radius.tl);
+            ctx.quadraticCurveTo(x, y, x + radius.tl, y);
+            ctx.closePath();
+            if (fill) {
+                ctx.fill();
+            }
+            if (stroke) {
+                ctx.stroke();
+            }
+        }
+
+        window.onload = function() {
+            requestAnimationFrame(drawLoop);
+        };
+    </script>
+</body>
+</html>
